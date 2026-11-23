@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solar System Orrery</title>
+<style>
+  :root {
+    --panel: rgba(12, 16, 30, 0.58);
+    --panel-border: rgba(255, 255, 255, 0.09);
+    --text: #eef1ff;
+    --muted: rgba(220, 228, 255, 0.58);
+    --accent: #ffc26b;
+    --accent2: #7f9bff;
+    --font: "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #000; color: var(--text); font-family: var(--font);
+    -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none;
+  }
+  canvas#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  canvas#scene.dragging { cursor: grabbing; }
+  canvas#scene.pointing { cursor: pointer; }
+  button { font: inherit; color: inherit; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  }
+
+  /* ---------- 上部：日付 ---------- */
+  #top {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; z-index: 5;
+    max-width: calc(100% - 32px);
+  }
+  #dateBtn {
+    background: none; border: 0; cursor: pointer; padding: 6px 18px 8px; border-radius: 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    transition: background .2s;
+  }
+  #dateBtn:hover { background: rgba(255, 255, 255, 0.05); }
+  #dateMain {
+    font-size: clamp(24px, 3.4vw, 42px); font-weight: 200; letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+    text-shadow: 0 0 24px rgba(140, 170, 255, 0.35);
+  }
+  #dateMain .era { font-size: 0.5em; font-weight: 300; margin-right: 0.35em; color: var(--muted); letter-spacing: 0.1em; vertical-align: 0.35em; }
+  #dateMain .u { font-size: 0.55em; font-weight: 300; margin: 0 0.12em 0 0.06em; color: var(--muted); }
+  #dateSub {
+    font-size: 12px; color: var(--muted); letter-spacing: 0.08em; display: flex; gap: 10px; align-items: center;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .badge {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.14em; padding: 2px 7px 2px 6px; border-radius: 99px;
+    border: 1px solid rgba(255,255,255,0.18); color: #fff; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ff5a5a; box-shadow: 0 0 8px #ff5a5a; animation: pulse 1.6s infinite; }
+  .badge.play::before { background: #6be38b; box-shadow: 0 0 8px #6be38b; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  #dateForm {
+    margin-top: 8px; padding: 12px 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center;
+    font-size: 13px;
+  }
+  #dateForm.hidden { display: none; }
+  #dateForm select, #dateForm input {
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); color: var(--text);
+    border-radius: 8px; padding: 6px 8px; font: inherit; font-variant-numeric: tabular-nums; outline: none;
+  }
+  #dateForm select option { background: #141a2e; }
+  #dateForm input:focus, #dateForm select:focus { border-color: var(--accent2); }
+  #fYear { width: 76px; } #fMonth, #fDay { width: 56px; }
+  #dateForm .go { background: var(--accent2); border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; color: #0b1020; font-weight: 600; }
+
+  /* ---------- 右上：天体リスト ---------- */
+  #bodies {
+    position: fixed; top: 14px; right: 14px; z-index: 4; padding: 6px; display: flex; flex-direction: column; gap: 1px;
+  }
+  #bodies button {
+    background: none; border: 0; cursor: pointer; display: flex; align-items: center; gap: 9px;
+    padding: 5px 12px 5px 9px; border-radius: 9px; font-size: 12.5px; letter-spacing: 0.03em; text-align: left;
+    color: rgba(235, 240, 255, 0.82); transition: background .15s, color .15s;
+  }
+  #bodies button:hover { background: rgba(255,255,255,0.07); color: #fff; }
+  #bodies button.on { background: rgba(255,255,255,0.12); color: #fff; }
+  #bodies .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 8px currentColor; }
+  #bodies .jp { color: var(--muted); font-size: 11px; margin-left: auto; padding-left: 10px; }
+
+  /* ---------- 左上：操作ヒント ---------- */
+  #hint {
+    position: fixed; top: 18px; left: 18px; z-index: 3; font-size: 12px; line-height: 1.8; color: var(--muted);
+    padding: 10px 14px; transition: opacity 1.2s;
+  }
+  #hint b { color: var(--text); font-weight: 500; }
+  #hint.fade { opacity: 0; pointer-events: none; }
+
+  /* ---------- ホバー時の名前 ---------- */
+  #label {
+    position: fixed; left: 0; top: 0; z-index: 6; pointer-events: none; text-align: center;
+    transform: translate(-50%, -100%); opacity: 0; transition: opacity .15s;
+  }
+  #label.show { opacity: 1; }
+  #label .name {
+    font-size: 15px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap;
+    text-shadow: 0 0 10px rgba(0,0,0,0.9), 0 0 18px rgba(120,160,255,0.45);
+  }
+  #label .meta { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; white-space: nowrap; text-shadow: 0 0 8px #000; }
+  #label .stem { width: 1px; height: 12px; margin: 4px auto 0; background: linear-gradient(rgba(255,255,255,0.6), rgba(255,255,255,0)); }
+
+  /* ---------- 下部：再生コントロール ---------- */
+  #controls {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
+    width: min(1120px, calc(100% - 32px)); padding: 14px 18px 12px;
+  }
+  #timeline { position: relative; height: 40px; cursor: pointer; touch-action: none; }
+  #timeline .track {
+    position: absolute; left: 0; right: 0; top: 10px; height: 5px; border-radius: 99px;
+    background: rgba(255, 255, 255, 0.13); transition: height .15s, top .15s;
+  }
+  #timeline:hover .track, #timeline.drag .track { height: 7px; top: 9px; }
+  #timeline .fill {
+    position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px;
+    background: linear-gradient(90deg, #4c6fff, #9a7cff 55%, #ffb46b);
+    box-shadow: 0 0 14px rgba(140, 130, 255, 0.45);
+  }
+  #timeline .nowMark {
+    position: absolute; top: -4px; width: 2px; height: 15px; margin-left: -1px; border-radius: 2px;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  }
+  #timeline .thumb {
+    position: absolute; top: 12.5px; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+    background: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,0.14), 0 0 16px rgba(170, 180, 255, 0.9);
+    transition: transform .15s; pointer-events: none;
+  }
+  #timeline:hover .thumb, #timeline.drag .thumb { transform: scale(1.15); }
+  #timeline .ticks { position: absolute; left: 0; right: 0; top: 22px; height: 18px; pointer-events: none; }
+  #timeline .tick { position: absolute; top: 0; font-size: 10.5px; color: var(--muted); white-space: nowrap; transform: translateX(-50%); letter-spacing: 0.04em; }
+  #timeline .tick.first { transform: none; } #timeline .tick.last { transform: translateX(-100%); }
+  #timeline .minor { position: absolute; top: -9px; width: 1px; height: 4px; background: rgba(255,255,255,0.22); }
+  #timeline .tip {
+    position: absolute; bottom: 34px; transform: translateX(-50%); padding: 5px 10px; border-radius: 8px;
+    background: rgba(8, 10, 20, 0.92); border: 1px solid var(--panel-border); font-size: 12px; white-space: nowrap;
+    pointer-events: none; opacity: 0; transition: opacity .12s; font-variant-numeric: tabular-nums;
+  }
+  #timeline:hover .tip, #timeline.drag .tip { opacity: 1; }
+
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .spacer { flex: 1; }
+  #play {
+    width: 46px; height: 46px; border-radius: 50%; border: 0; cursor: pointer; flex: none;
+    background: linear-gradient(145deg, #ffffff, #d6dcff); color: #0b1020;
+    display: grid; place-items: center; box-shadow: 0 4px 22px rgba(150, 170, 255, 0.45);
+    transition: transform .12s, box-shadow .2s;
+  }
+  #play:hover { transform: scale(1.06); box-shadow: 0 4px 28px rgba(150, 170, 255, 0.7); }
+  #play:active { transform: scale(0.96); }
+  #play svg { width: 20px; height: 20px; }
+  #play .i-pause { display: none; }
+  #play.playing .i-play { display: none; }
+  #play.playing .i-pause { display: block; }
+
+  .seg { display: inline-flex; padding: 3px; border-radius: 11px; background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border); }
+  .seg button {
+    background: none; border: 0; cursor: pointer; padding: 6px 12px; border-radius: 8px; font-size: 12.5px;
+    color: var(--muted); transition: background .15s, color .15s; white-space: nowrap;
+  }
+  .seg button:hover { color: #fff; }
+  .seg button.on { background: rgba(255,255,255,0.15); color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1); }
+
+  .btn {
+    background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border); border-radius: 10px; cursor: pointer;
+    padding: 7px 13px; font-size: 12.5px; color: rgba(235,240,255,0.88); transition: background .15s; white-space: nowrap;
+  }
+  .btn:hover { background: rgba(255,255,255,0.13); }
+  .btn.now { color: var(--accent); border-color: rgba(255, 194, 107, 0.35); }
+
+  .scale { display: flex; align-items: center; gap: 9px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .scale output { color: var(--text); min-width: 112px; font-variant-numeric: tabular-nums; }
+  input[type=range].mini { -webkit-appearance: none; appearance: none; width: 130px; height: 4px; border-radius: 99px; background: rgba(255,255,255,0.16); outline: none; cursor: pointer; }
+  input[type=range].mini::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px rgba(170,180,255,0.8); }
+  input[type=range].mini::-moz-range-thumb { width: 13px; height: 13px; border: 0; border-radius: 50%; background: #fff; }
+
+  #error {
+    position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 24px;
+    background: rgba(0,0,0,0.85); color: #ffb0b0; white-space: pre-wrap; font: 13px/1.6 Consolas, monospace;
+  }
+  #error.hidden { display: none; }
+
+  @media (max-width: 760px) {
+    #bodies { display: none; }
+    #hint { display: none; }
+    .scale input { width: 90px; }
+    .scale output { min-width: 0; }
+    #controls { padding: 12px 12px 10px; bottom: 10px; }
+    .seg button { padding: 6px 9px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<header id="top">
+  <button id="dateBtn" type="button" title="クリックして日付を指定">
+    <span id="dateMain"></span>
+    <span id="dateSub"></span>
+  </button>
+  <form id="dateForm" class="panel hidden" autocomplete="off">
+    <select id="fEra"><option value="ad">西暦</option><option value="bc">紀元前</option></select>
+    <input id="fYear" type="number" min="1" max="3000" required><span>年</span>
+    <input id="fMonth" type="number" min="1" max="12" required><span>月</span>
+    <input id="fDay" type="number" min="1" max="31" required><span>日</span>
+    <button class="go" type="submit">移動</button>
+  </form>
+</header>
+
+<nav id="bodies" class="panel"></nav>
+
+<div id="hint" class="panel">
+  <b>ドラッグ</b> 視点の回転　<b>右ドラッグ</b> 移動　<b>ホイール</b> ズーム<br>
+  <b>クリック</b> 惑星を追尾　<b>Space</b> 再生 / 停止<br>
+  <b>← →</b> 1日　<b>Shift + ← →</b> 1年　<b>↑ ↓</b> 100年　<b>0〜8</b> 天体
+</div>
+
+<div id="label"><div class="name"></div><div class="meta"></div><div class="stem"></div></div>
+
+<footer id="controls" class="panel">
+  <div id="timeline">
+    <div class="track"><div class="fill"></div><div class="nowMark" title="現在"></div></div>
+    <div class="thumb"></div>
+    <div class="ticks"></div>
+    <div class="tip"></div>
+  </div>
+  <div class="row">
+    <button id="play" type="button" title="再生 / 一時停止 (Space)">
+      <svg class="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M7 4.5v15a1 1 0 0 0 1.52.85l12-7.5a1 1 0 0 0 0-1.7l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+      <svg class="i-pause" viewBox="0 0 24 24"><rect fill="currentColor" x="5.5" y="4" width="4.5" height="16" rx="1.2"/><rect fill="currentColor" x="14" y="4" width="4.5" height="16" rx="1.2"/></svg>
+    </button>
+    <div class="seg" id="speeds">
+      <button type="button" data-rate="1" class="on">1日 / 秒</button>
+      <button type="button" data-rate="365.25">1年 / 秒</button>
+      <button type="button" data-rate="36525">100年 / 秒</button>
+    </div>
+    <button id="nowBtn" class="btn now" type="button" title="現在時刻に戻る (L)">現在</button>
+    <span class="spacer"></span>
+    <label class="scale">惑星の大きさ
+      <input id="scale" class="mini" type="range" min="0" max="1000" step="1">
+      <output id="scaleOut"></output>
+    </label>
+    <button id="fitBtn" class="btn" type="button" title="太陽系全体を表示 (0)">全体表示</button>
+  </div>
+</footer>
+
+<div id="error" class="hidden"></div>
+
+<script src="js/astro.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
